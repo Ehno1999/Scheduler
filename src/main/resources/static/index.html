@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scheduler</title>
+</head>
+<body>
+<h1>SQL Script Scheduler</h1>
+
+<!-- Form to Schedule a Query -->
+<form id="schedulerForm">
+    <label for="sqlQuery">SQL Query:</label><br>
+    <textarea id="sqlQuery" name="sqlQuery" rows="4" cols="50"></textarea><br><br>
+
+    <label for="runTime">Run Time (YYYY-MM-DD HH:MM:SS):</label><br>
+    <input type="text" id="runTime" name="runTime" placeholder="2025-03-19 18:36:30"><br><br>
+
+    <label for="interval">Repeat Interval (in days):</label><br>
+    <input type="number" id="interval" name="interval"><br><br>
+
+    <button type="submit">Schedule Query</button>
+</form>
+
+<hr>
+
+<!-- Button to Fetch All Tasks -->
+<button id="fetchTasksBtn">Fetch All Scheduled Queries</button>
+
+<!-- Display Table for Scheduled Queries -->
+<h2>Scheduled Queries</h2>
+<table border="1">
+    <thead>
+    <tr>
+        <th>ID</th>
+        <th>Query</th>
+        <th>Date</th>
+        <th>Interval (days)</th>
+        <th>Actions</th>
+    </tr>
+    </thead>
+    <tbody id="tasksTableBody">
+    <!-- Fetched tasks will be inserted here -->
+    </tbody>
+</table>
+
+<script>
+    // Function to calculate the current date and time + 1 minute
+    function getDateTimeOneMinuteFromNow() {
+        const now = new Date();
+        now.setMinutes(now.getMinutes() + 1);  // Add 1 minute
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');  // Add 1 to month to get correct value
+        const day = String(now.getDate()).padStart(2, '0');
+        const hours = String(now.getHours()).padStart(2, '0');
+        const minutes = String(now.getMinutes()).padStart(2, '0');
+        const seconds = String(now.getSeconds()).padStart(2, '0');
+
+        return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+    }
+
+    // Set the default value of runTime input field to 1 minute from now
+    document.getElementById('runTime').value = getDateTimeOneMinuteFromNow();
+
+    // Handle form submission to schedule a query
+    document.getElementById("schedulerForm").addEventListener("submit", function(event) {
+        event.preventDefault();
+
+        var sqlQuery = document.getElementById("sqlQuery").value;
+        var runTime = document.getElementById("runTime").value;
+        var interval = document.getElementById("interval").value;
+
+        // Ensure runTime matches the expected format (yyyy-MM-dd HH:mm:ss)
+        if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(runTime)) {
+            alert("Please enter the date in the format: YYYY-MM-DD HH:MM:SS");
+            return;
+        }
+
+        var formData = new FormData();
+        formData.append("sqlQuery", sqlQuery);
+        formData.append("runTime", runTime);
+        formData.append("interval", interval);
+
+        fetch("http://localhost:8080/tasks/create", {
+            method: "POST",
+            body: formData
+        })
+        .then(response => response.text())
+        .then(data => {
+            alert("SQL query scheduled! " + data);
+            fetchTasks();  // Re-fetch tasks after scheduling
+        })
+        .catch(error => {
+            console.error("Error:", error);
+        });
+    });
+
+    // Fetch and display all scheduled queries
+    function fetchTasks() {
+        fetch("http://localhost:8080/tasks/findall")  // Calls Spring Boot backend
+        .then(response => response.json())
+        .then(tasks => {
+            let tableBody = document.getElementById("tasksTableBody");
+            tableBody.innerHTML = "";  // Clear previous entries
+
+            tasks.forEach(task => {
+                let row = `<tr id="task-${task.id}">
+                    <td>${task.id}</td>
+                    <td><input type="text" id="query-${task.id}" value="${task.query}"></td>
+                    <td><input type="text" id="date-${task.id}" value="${task.date}"></td>
+                    <td><input type="number" id="interval-${task.id}" value="${task.interval}"></td>
+                    <td>
+                        <button onclick="updateTask(${task.id})">Update</button>
+                        <button onclick="deleteTask(${task.id})">X</button>
+                    </td>
+                </tr>`;
+                tableBody.innerHTML += row;
+            });
+        })
+        .catch(error => {
+            console.error("Error fetching tasks:", error);
+        });
+    }
+    document.getElementById('fetchTasksBtn').addEventListener('click', function() {
+    location.reload();  // Refresh the page
+});
+
+    // Delete a task by ID
+    function deleteTask(id) {
+        fetch(`http://localhost:8080/tasks/delete/${id}`, {
+            method: "DELETE"
+        })
+        .then(response => response.text())
+        .then(data => {
+            alert("Task deleted: " + data);
+            fetchTasks();  // Re-fetch tasks after deletion
+        })
+        .catch(error => {
+            console.error("Error deleting task:", error);
+        });
+    }
+
+    // Update a task by ID
+    function updateTask(id) {
+        var query = document.getElementById(`query-${id}`).value;
+        var date = document.getElementById(`date-${id}`).value;
+        var interval = document.getElementById(`interval-${id}`).value;
+
+        var formData = new FormData();
+        formData.append("sqlQuery", query);
+        formData.append("runTime", date);
+        formData.append("interval", interval);
+
+        fetch(`http://localhost:8080/tasks/update/${id}`, {
+            method: "PUT",
+            body: formData
+        })
+        .then(response => response.text())
+        .then(data => {
+            alert("Task updated: " + data);
+            fetchTasks();  // Re-fetch tasks after update
+        })
+        .catch(error => {
+            console.error("Error updating task:", error);
+        });
+    }
+
+    // Fetch all tasks when the page loads
+    fetchTasks();
+
+</script>
+</body>
+</html>
