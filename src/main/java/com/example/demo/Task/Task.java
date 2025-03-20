@@ -1,8 +1,7 @@
 package com.example.demo.Task;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
-
-import javax.persistence.*;
+import jakarta.persistence.*;
 
 @Entity
 @Table(name = "Task")

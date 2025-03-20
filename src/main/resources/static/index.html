@@ -11,13 +11,16 @@
 <!-- Form to Schedule a Query -->
 <form id="schedulerForm">
     <label for="sqlQuery">SQL Query:</label><br>
+    <label>DELETE FROM TASK WHERE task_id= 1;</label>
+    <label>SELECT * FROM TASK;</label>
+    <label>UPDATE TASK SET task_interval = 3 WHERE task_id = 1;</label>
     <textarea id="sqlQuery" name="sqlQuery" rows="4" cols="50"></textarea><br><br>
 
     <label for="runTime">Run Time (YYYY-MM-DD HH:MM:SS):</label><br>
     <input type="text" id="runTime" name="runTime" placeholder="2025-03-19 18:36:30"><br><br>
 
-    <label for="interval">Repeat Interval (in days):</label><br>
-    <input type="number" id="interval" name="interval"><br><br>
+    <label for="interval" >Repeat Interval (in days):</label><br>
+    <input type="number" id="interval" name="interval" placeholder="0"><br><br>
 
     <button type="submit">Schedule Query</button>
 </form>

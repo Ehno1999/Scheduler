@@ -5,13 +5,18 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 
 public class TaskRowMapper implements RowMapper<Task> {
+
+    /**
+     * Maps a row from the ResultSet to a Task object.
+     * Converts database columns to the corresponding Task fields.
+     */
     @Override
     public Task mapRow(ResultSet rs, int rowNum) throws SQLException {
         Task task = new Task();
-        task.setId((int) rs.getLong("task_id")); // Map task ID
-        task.setDate(rs.getString("date")); // Map the date field as string
-        task.setQuery(rs.getString("query")); // Map the query field
-        task.setinterval(rs.getInt("task_interval")); // Correctly map the 'daily' field from the database
+        task.setId((int) rs.getLong("task_id"));
+        task.setDate(rs.getString("date"));
+        task.setQuery(rs.getString("query"));
+        task.setinterval(rs.getInt("task_interval"));
         return task;
     }
 }

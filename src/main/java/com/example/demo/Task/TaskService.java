@@ -1,9 +1,9 @@
 package com.example.demo.Task;
 
-import com.example.demo.Scheduler.SchedulerController;
-import com.example.demo.Time.TimeService;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.example.demo.Scheduler.TaskSchedulerService;
+import com.example.demo.Time.TimeUtilService;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 
 import javax.transaction.Transactional;
@@ -16,141 +16,160 @@ import java.util.Map;
 @Service
 public class TaskService {
 
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
+    private final JdbcTemplate jdbcTemplate;
 
-    @Autowired
-    private TaskRepository taskRepository;
+    private final TaskRepository taskRepository;
 
-    @Autowired
-    private SchedulerController schedulerController;
+    private final TimeUtilService timeUtilService;
 
-    @Autowired
-    private TimeService timeService;
 
-    public Task getClosestFutureTask() {
-        String sql = "SELECT * FROM task " +
-                "WHERE PARSEDATETIME(date, 'EEE MMM dd HH:mm:ss z yyyy') >= NOW() " +
-                "ORDER BY PARSEDATETIME(date, 'EEE MMM dd HH:mm:ss z yyyy') ASC " +
-                "LIMIT 1";
 
-        List<Task> tasks = jdbcTemplate.query(sql, new TaskRowMapper());
-
-        if (!tasks.isEmpty()) {
-            Task task = tasks.get(0);
-            System.out.println("Retrieved Task from DB: " + task); // Log the task from DB
-            return task;
-        }
-        return null;
-    }
-
-    public String queTask() {
-        // Fetch the updated task (latest task with the closest future date)
-        Task updatedTask = getClosestFutureTask();
-        if (updatedTask != null) {
-            // Log the updated task to verify the date has been updated correctly
-            System.out.println("Updated Task to queue: " + updatedTask.toString());
-
-            // Schedule the task by passing the updated task to the scheduler
-            String result = schedulerController.scheduleQuery(updatedTask);
-
-            // Return result of scheduling (optional)
-            return "Task successfully queued for the next day.";
-        } else {
-            // If no task is found to queue
-            System.out.println("No task found to queue.");
-            return "No task to queue.";
-        }
+    public TaskService(JdbcTemplate jdbcTemplate, TaskRepository taskRepository, TimeUtilService timeUtilService) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.taskRepository = taskRepository;
+        this.timeUtilService = timeUtilService;
     }
 
     @Transactional
-    public String doStuff(Task closestFutureTask) {
-        System.out.println(">>> doStuff() was called!");
-        System.out.println("Executing doStuff() for Task ID: " + closestFutureTask.getId());
-        System.out.println(closestFutureTask.getinterval());
-        if (closestFutureTask.getinterval() > 0) {
-            System.out.println("Task isDaily() is TRUE, proceeding to update the date...");
+    public String executeTask(Task task, TaskSchedulerService taskSchedulerService) {
+        System.out.println(">>> executeTask() called for Task ID: " + task.getId());
+
+        // Handle interval-based scheduling
+        if (task.getinterval() > 0) {
             try {
-                // Parse the current task date (which is a string) into a Date object
-                Date currentDate = timeService.parseCustomDate(closestFutureTask.getDate());
+                Date currentDate = timeUtilService.parseCustomDate(task.getDate());
+                Date newDate = timeUtilService.addDays(currentDate, task.getinterval());  // Add days to the current task date
 
-                // Add one day to the current date
-                Date newDate = timeService.addOneDay(currentDate,closestFutureTask.getinterval());
-
-                // Convert to string
                 SimpleDateFormat sdf = new SimpleDateFormat("EEE MMM dd HH:mm:ss z yyyy");
                 String newDateStr = sdf.format(newDate);
 
-                // Update task
-                closestFutureTask.setDate(newDateStr);
-
-                // Log before saving
-                System.out.println("Before saving, task date: " + closestFutureTask.getDate());
-
-                // Save the updated task
-                taskRepository.save(closestFutureTask);
-
-                // Log after saving
-                System.out.println("After saving, task date: " + closestFutureTask.getDate());
+                task.setDate(newDateStr);
+                taskRepository.save(task);
+                System.out.println("Updated task date: " + task.getDate());
 
             } catch (ParseException e) {
+                System.err.println("Error parsing date for task ID " + task.getId() + ": " + e.getMessage());
                 e.printStackTrace();
             }
         } else {
-            safeDeleteTask(closestFutureTask.getId());
+            deleteTask(task.getId());
         }
 
-        // Queue the task for the next day
-        String queuedMessage = queTask();
-
-        // Run the query for the task
-        return doquery(closestFutureTask.getQuery()) + "\n" + queuedMessage;
+        // Reschedule the next task and execute the query
+        String rescheduleMessage = taskSchedulerService.scheduleNextTask(taskSchedulerService);
+        return executeQuery(task.getQuery()) + "\n" + rescheduleMessage;
     }
+
     @Transactional
-    public void safeDeleteTask(int taskId) {
-        // Double-check the existence of the task before deleting
+    private void deleteTask(int taskId) {
+        // Check if the task exists before attempting deletion
         if (!taskRepository.existsById(taskId)) {
             System.out.println("Task with ID " + taskId + " does not exist, skipping deletion.");
             return;
         }
 
         try {
+            // Attempt to delete the task
             taskRepository.deleteById(taskId);
             System.out.println("Task deleted successfully: " + taskId);
+        } catch (ObjectOptimisticLockingFailureException e) {
+            // Catch the optimistic locking failure exception
+            System.err.println("Optimistic locking failure when deleting task with ID " + taskId + ": " + e.getMessage());
+            // Optionally, log the error or take any other action, like retrying or notifying the user
         } catch (Exception e) {
-            System.out.println("Error deleting task with ID " + taskId + ": " + e.getMessage());
+            // Catch other general exceptions
+            System.err.println("Error deleting task with ID " + taskId + ": " + e.getMessage());
         }
     }
-    public String doquery(String query) {
+
+    private String executeQuery(String query) {
         try {
-            // Execute the SQL query and get the results as a list of maps
-            List<Map<String, Object>> results = jdbcTemplate.queryForList(query);
+            String queryType = query.trim().toUpperCase().split(" ")[0];
+            // Get the first word in the query (e.g., SELECT, DELETE, UPDATE)
+            switch (queryType) {
+                case "SELECT":
+                    return executeSelect(query);
 
-            // Debugging: Check how many rows are returned
-            System.out.println("Number of rows returned: " + results.size());
+                case "DELETE":
+                    return executeDelete(query);
 
-            // If there are no results
-            if (results.isEmpty()) {
-                System.out.println("No results found for the query.");
-                return "No results found for the query.";
+                case "UPDATE":
+                    return executeUpdate(query);
+
+                default:
+                    return "Unsupported query type.";
             }
 
-            // Convert the results into a readable string format
+        } catch (Exception e) {
+            System.err.println("Error executing query: " + e.getMessage());
+            e.printStackTrace();
+            return "Error executing query: " + e.getMessage();
+        }
+    }
+
+    private String executeSelect(String query) {
+        try {
+            List<Map<String, Object>> results = jdbcTemplate.queryForList(query);
+            System.out.println("SELECT Query returned " + results.size() + " rows.");
+
+            if (results.isEmpty()) {
+                return "No results found.";
+            }
+
             StringBuilder resultBuilder = new StringBuilder();
             for (Map<String, Object> row : results) {
                 for (Map.Entry<String, Object> entry : row.entrySet()) {
                     resultBuilder.append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
                 }
-                resultBuilder.append("\n");  // Add a newline between rows
+                resultBuilder.append("\n");
             }
 
-            // Print the result to the console
-            System.out.println("Query Results:\n" + resultBuilder.toString());
-            return "Query executed successfully, results printed in the console.";
-
+            System.out.println("SELECT Query Results:\n" + resultBuilder.toString());
+            return "Query executed successfully.";
         } catch (Exception e) {
+            System.err.println("Error executing SELECT query: " + e.getMessage());
             e.printStackTrace();
-            return "Error executing query: " + e.getMessage();
+            return "Error executing SELECT query: " + e.getMessage();
         }
+    }
+
+
+
+    private String executeDelete(String query) {
+        try {
+            // Attempt to execute the DELETE query
+            int rowsAffected = jdbcTemplate.update(query);
+            System.out.println("DELETE Query executed. Rows affected: " + rowsAffected);
+            return rowsAffected + " rows deleted.";
+        } catch (ObjectOptimisticLockingFailureException e) {
+            // Handle the optimistic locking failure specifically
+            System.err.println("Optimistic locking failure while executing DELETE query: " + e.getMessage());
+            return "Optimistic locking failure while executing DELETE query: " + e.getMessage();
+        } catch (Exception e) {
+            System.err.println("Error executing DELETE query: " + e.getMessage());
+            e.printStackTrace();
+            return "Error executing DELETE query: " + e.getMessage();
+        }
+    }
+
+    private String executeUpdate(String query) {
+        try {
+            int rowsAffected = jdbcTemplate.update(query);
+            System.out.println("UPDATE Query executed. Rows affected: " + rowsAffected);
+            return rowsAffected + " rows updated.";
+        } catch (Exception e) {
+            System.err.println("Error executing UPDATE query: " + e.getMessage());
+            e.printStackTrace();
+            return "Error executing UPDATE query: " + e.getMessage();
+        }
+    }
+    public Task buildTask(String sqlQuery, String runTime) throws ParseException {
+        Date parsedDate = timeUtilService.parseTimeForToday(runTime);
+        String formattedDate = timeUtilService.formatToCustomDateFormat(parsedDate);
+        Task newTask = new Task();
+        newTask.setQuery(sqlQuery);
+        newTask.setDate(formattedDate);
+
+        return newTask;
     }
 }

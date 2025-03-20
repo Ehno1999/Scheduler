@@ -1,12 +1,10 @@
 package com.example.demo.Task;
 
-import com.example.demo.Scheduler.SchedulerController;
-import com.example.demo.Time.TimeService;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.example.demo.Scheduler.TaskSchedulerService;
+import com.example.demo.Time.TimeUtilService;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.web.bind.annotation.*;
 
-import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
 import java.util.Optional;
@@ -15,27 +13,34 @@ import java.util.Optional;
 @RequestMapping("/tasks")
 public class TaskController {
 
-    @Autowired
-    private TaskScheduler taskScheduler;
-    @Autowired
-    private TaskRepository taskRepository;
-    private String sqlQuery;
+    private final TaskScheduler taskScheduler;
+    private final TaskRepository taskRepository;
+    private final TaskService taskService;
+    private final TaskSchedulerService taskSchedulerService;  // Add this line
+    private final TimeUtilService timeUtilService;
 
-    @Autowired
-    SchedulerController schedulerController;
+    public TaskController(TaskScheduler taskScheduler, TaskRepository taskRepository,
+                          TaskService taskService, TaskSchedulerService taskSchedulerService,  // Add this line
+                          TimeUtilService timeUtilService) {
+        this.taskScheduler = taskScheduler;
+        this.taskRepository = taskRepository;
+        this.taskService = taskService;
+        this.taskSchedulerService = taskSchedulerService;  // Add this line
+        this.timeUtilService = timeUtilService;
+    }
 
-    @Autowired
-    private TaskService taskService;  // Add @Autowired here to inject TaskService
-
-    @Autowired
-    private TimeService timeService;
-
+    // Get all tasks
     @GetMapping("/findall")
-    public List<Task> getAllTasks() {
+    private List<Task> getAllTasks() {
         return taskRepository.findAll();
     }
+
+    // Update an existing task
     @PutMapping("/update/{id}")
-    public String updateTask(@PathVariable Integer id, @RequestParam String sqlQuery, @RequestParam String runTime, @RequestParam int interval) {
+    private String updateTask(@PathVariable Integer id,
+                              @RequestParam String sqlQuery,
+                              @RequestParam String runTime,
+                              @RequestParam int interval) {
         Optional<Task> taskOpt = taskRepository.findById(id);
         if (taskOpt.isPresent()) {
             Task task = taskOpt.get();
@@ -48,67 +53,44 @@ public class TaskController {
         return "Task not found!";
     }
 
-    // Delete task by ID
+    // Delete a task by ID
     @DeleteMapping("/delete/{id}")
-    public String deleteTask(@PathVariable Integer id) {
+    private String deleteTask(@PathVariable Integer id) {
         taskRepository.deleteById(id);
         return "Task deleted successfully!";
     }
 
-
+    // Create a new task and schedule it
     @PostMapping("/create")
-    public String createTask(@RequestParam String sqlQuery, @RequestParam String runTime, @RequestParam int interval) {
+    private String createTask(@RequestParam String sqlQuery,
+                              @RequestParam(required = false) String runTime,
+                              @RequestParam(required = false) Integer interval) {
         try {
-            // Parse the received date in 'yyyy-MM-dd HH:mm:ss' format
-            SimpleDateFormat inputFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-            Date parsedDate = inputFormat.parse(runTime);
+            // If runTime is null or empty, set it to 1 day from now
+            if (runTime == null || runTime.isEmpty()) {
+                runTime = timeUtilService.getOneDayFromNow();
+            } else {
+                // Parse the provided runTime to check if it is in the past
+                Date parsedRunTime = timeUtilService.parseTimeForToday(runTime);
+                if (parsedRunTime.before(new Date())) {
+                    runTime = timeUtilService.getOneDayFromNow();
+                }
+            }
 
-            // Convert the parsed Date to the desired format 'EEE MMM dd HH:mm:ss z yyyy'
-            SimpleDateFormat outputFormat = new SimpleDateFormat("EEE MMM dd HH:mm:ss z yyyy");
-            String formattedDate = outputFormat.format(parsedDate);
-
-            // Create and save new Task
-            Task newTask = new Task();
-            newTask.setQuery(sqlQuery);
-            newTask.setDate(formattedDate);  // Save the formatted date
+            // If interval is null or less than 0, set it to 0
+            if (interval == null || interval < 0) {
+                interval = 0;
+            }
+            Task newTask = taskService.buildTask(sqlQuery, runTime);
             newTask.setinterval(interval);
             taskRepository.save(newTask);
-
-            // After saving the task, call queTask to schedule it
-            taskService.queTask();  // Make sure this is called to schedule the task
+            taskSchedulerService.scheduleNextTask(taskSchedulerService);  // Pass the taskSchedulerService here
 
             return "Task scheduled successfully!";
         } catch (Exception e) {
             e.printStackTrace();
-            return "Error in scheduling task.";
+            return "Error scheduling task.";
         }
     }
 
-    // A response wrapper for the created task
-    public static class CreateTaskResponse {
-        private String message;
-        private Task task;
-
-        public CreateTaskResponse(String message, Task task) {
-            this.message = message;
-            this.task = task;
-        }
-
-        public String getMessage() {
-            return message;
-        }
-
-        public void setMessage(String message) {
-            this.message = message;
-        }
-
-        public Task getTask() {
-            return task;
-        }
-
-        public void setTask(Task task) {
-            this.task = task;
-        }
-    }
 }
-

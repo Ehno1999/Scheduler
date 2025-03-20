@@ -8,7 +8,7 @@ import org.springframework.web.servlet.ModelAndView;
 public class Controller {
 
     @RequestMapping("/")
-    public ModelAndView welcome() {
+    private ModelAndView welcome() {
         ModelAndView modelAndView = new ModelAndView();
         modelAndView.setViewName("index.html");
         return modelAndView;
