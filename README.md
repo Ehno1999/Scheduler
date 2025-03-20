@@ -21,8 +21,10 @@ Maven (for building the project)
 Installing
 Build the project using Maven:
 mvn clean install
+
 Run the Spring Boot application:
 mvn spring-boot:run
+
 Once the application starts, open your web browser and navigate to:
 http://localhost:8080
 
