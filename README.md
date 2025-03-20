@@ -1,4 +1,5 @@
 Scheduler
+
 SQL Script Scheduler
 This project is a SQL script scheduling tool built with Spring Boot. It allows users to schedule SQL queries to be executed at specified times and intervals. The application stores these tasks and schedules them for execution using Spring's task scheduler.
 
