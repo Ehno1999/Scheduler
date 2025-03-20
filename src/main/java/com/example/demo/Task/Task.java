@@ -22,7 +22,6 @@ public class Task {
     @Column(name = "task_interval")
     private int interval;  // Changed from 'boolean' to 'Boolean' to allow null values
 
-    // Constructors, getters, and setters
 
 
     public Task(String query, String date, int interval) {
